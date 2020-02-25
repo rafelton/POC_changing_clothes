@@ -5,25 +5,25 @@ import os
 import matplotlib.pyplot as plt
 from PIL import ImageFont, ImageDraw, Image
 
-font = cv2.FONT_HERSHEY_SIMPLEX 
-fgbg = cv2.createBackgroundSubtractorKNN(history=1, detectShadows=False) 
-path = os.path.dirname(os.path.realpath(__file__))
-plt.style.use('dark_background')
-writeOut = True
+_font = cv2.FONT_HERSHEY_SIMPLEX 
+_fgbg = cv2.createBackgroundSubtractorKNN(history=1, detectShadows=False) 
+_path = os.path.dirname(os.path.realpath(__file__))
+_writeOut = True
 frameSize = None
 
 def WriteContours(frame, black, mask_blur):
-    wh = 120
+    contourValidMinSize = 120
     middleX = 0
     objectCaption = 0
     rectangleThickness = 2
-    contours, hierarchy = cv2.findContours(mask_blur, cv2.RETR_TREE, cv2.CHAIN_APPROX_TC89_L1)
-    if len(contours) > 0:
 
+    contours, hierarchy = cv2.findContours(mask_blur, cv2.RETR_TREE, cv2.CHAIN_APPROX_TC89_L1)
+
+    if len(contours) > 0:
         for (i,contour) in enumerate (contours):
             cv2.drawContours(black, contour, 0, (255,255,255), 5)
             (x,y,w,h) = cv2.boundingRect(contour)
-            contour_valid = (w >= wh) and (h >= wh)
+            contour_valid = (w >= contourValidMinSize) and (h >= contourValidMinSize)
 
             if contour_valid:
                 centerX = x + w/2
@@ -37,10 +37,6 @@ def WriteContours(frame, black, mask_blur):
                 
     return frame, middleX, objectCaption
 
-def GetResizedFrame(frame):
-    scala = .5
-    return cv2.resize(frame, None, fx=scala, fy=scala)
-
 def ProcessFrame():
     ret, frame = cap.read()
     if not ret:
@@ -51,7 +47,7 @@ def ProcessFrame():
     ROI[90:,300:] = frame[90:,300:]
     gray = cv2.cvtColor(ROI, cv2.COLOR_RGB2GRAY)
     #gray = cv2.equalizeHist(gray)
-    fgmask = fgbg.apply(gray)
+    fgmask = _fgbg.apply(gray)
     mask_blur = cv2.blur(fgmask, blur)
     return frame, black, gray, mask_blur
 
@@ -68,12 +64,12 @@ def get_histogram(src):
     histogram = np.array([b,g,r]).reshape(-1,1)
     return histogram, b,g,r
 
-def GetDirection(prevMiddleX, middleX):
-    if prevMiddleX == 0 or middleX == 0:
+def GetDirection(previousMiddleX, middleX):
+    if previousMiddleX == 0 or middleX == 0:
         return ''
-    elif middleX < prevMiddleX:
+    elif middleX < previousMiddleX:
         return 'Left'
-    elif middleX > prevMiddleX:
+    elif middleX > previousMiddleX:
         return 'Right'
 
 def ShowMathPlotAsCV2(frame, fig):
@@ -89,10 +85,9 @@ def ShowMathPlotAsCV2(frame, fig):
     img = cv2.resize(img, frameDetailsSize)
     return img
 
-#Segmentação de Fundo + Fluxo Optico + Classificação de Histograma
 if __name__ == "__main__":
 
-    xGapDirectionTolerance = 20
+    xGapDirectionTolerance = 40
     previousCenterX = 0
     lastHistogram = None
     histogramaTextResponse = '--'
@@ -101,31 +96,37 @@ if __name__ == "__main__":
     newDirection = ''
     directionChanged = False
 
-    cap = cv2.VideoCapture(path + '/changing_clothes.mp4')
+    plt.style.use('dark_background')
+    cap = cv2.VideoCapture(_path + '/changing_clothes.mp4')
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
     frame, black, gray, mask_blur = ProcessFrame()
     frameSize = (frame.shape[1], frame.shape[0])
     frameDetailsSize = (int(frame.shape[1]/3), frame.shape[0])
-    frame_details = cv2.resize(black, frameDetailsSize)
-    out = cv2.VideoWriter(path + '/out.mp4', fourcc, cap.get(cv2.CAP_PROP_FPS), frameSize)
+    frameDetails = cv2.resize(black, frameDetailsSize)
+    out = cv2.VideoWriter(_path + '/out.mp4', fourcc, cap.get(cv2.CAP_PROP_FPS), frameSize)
     fig, ax = plt.subplots(2,2)
     
     while True:
 
         frame, black, gray, mask_blur = ProcessFrame()
         frame, centerX, objectFrame = WriteContours(frame, black, mask_blur)
-    
+
+        #detecting a direction based on the movement of the center point X based on the previous position
         if centerX > 0 and (previousCenterX > centerX + xGapDirectionTolerance or previousCenterX < centerX - xGapDirectionTolerance):
 
-            if (centerX - previousCenterX < xGapDirectionTolerance * 5):
+            #ruling out absurd movements like moving from X = 30 to x = 600
+            if (centerX - previousCenterX < xGapDirectionTolerance * 3):
+
                 newDirection = GetDirection(previousCenterX, centerX)
 
-                print(str(previousCenterX) +' '+ str(centerX) + ' '+ str(newDirection))
+                #print(str(previousCenterX) +' '+ str(centerX) + ' '+ str(newDirection))
 
                 if newDirection != '':
 
+                    #getting histogram each frame, maybe it can be improved
                     h2,b2,g2,r2 = get_histogram(objectFrame)
 
+                    #plot detais when the direction changes from Left to the Right
                     if lastDirection == 'Left' and newDirection == 'Right':
                     
                         ax[0][0].set_title("Before/After")
@@ -136,14 +137,14 @@ if __name__ == "__main__":
                         ax[1][0].set_axis_off()
                         ax[1][0].imshow(cv2.cvtColor(objectFrame, cv2.COLOR_BGR2RGB))
                         ax[1][1].plot(h2)
-                        frame_details = ShowMathPlotAsCV2(frame, fig)
+                        frameDetails = ShowMathPlotAsCV2(frame, fig)
                         resp = cv2.compareHist(h2, lastHistogram, 0)
                         histogramaTextResponse = str(round(resp, 2))
                         if resp < 0.7:
                            histogramaTextResponse = histogramaTextResponse + " Change of Clothes Detected!!"
 
+                    #rebuild plot
                     elif lastDirection == 'Right' and newDirection == 'Left':
-                        plt.clf()
                         fig, ax = plt.subplots(2,2)
                         histogramaTextResponse = '--'
 
@@ -155,20 +156,20 @@ if __name__ == "__main__":
             previousCenterX = centerX
         
 
-        cv2.putText(frame, 'Histogram: ' + histogramaTextResponse, (500,160), font,.8, [0,255,0], 2, cv2.LINE_AA)
-        cv2.putText(frame, 'Flow: ' + lastDirection, (500,120), font,.8, [0,255,0], 2, cv2.LINE_AA)
+        cv2.putText(frame, 'Histogram: ' + histogramaTextResponse, (500,160), _font,.8, [0,255,0], 2, cv2.LINE_AA)
+        cv2.putText(frame, 'Flow: ' + lastDirection, (500,120), _font,.8, [0,255,0], 2, cv2.LINE_AA)
        
         img_pil = Image.fromarray(frame)
-        img_pil_details = Image.fromarray(frame_details)
+        img_pil_details = Image.fromarray(frameDetails)
         draw = ImageDraw.Draw(img_pil)  
         img_pil.paste(img_pil_details)
         final = np.array(img_pil)
         cv2.imshow("Camera", final)
 
-        if writeOut:
+        if _writeOut:
             out.write(final)
 
-        ch = cv2.waitKey(5)
+        ch = cv2.waitKey(1)
         if ch == ord('q'):
             out.release()
             cv2.destroyAllWindows()
