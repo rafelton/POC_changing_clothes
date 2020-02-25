@@ -1,3 +1,6 @@
+#Rafael Elton Santos Oliveira https://www.linkedin.com/in/rafelton/
+#Computer Vision classes at Beet-ai https://www.linkedin.com/company/beet-ai/ 
+
 import cv2
 import numpy as np
 import time
